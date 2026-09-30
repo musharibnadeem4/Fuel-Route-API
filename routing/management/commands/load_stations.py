@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from routing.models import FuelStation
-from routing.services.stations import clean_stations
+from routing.services.cleaning import clean_stations
 
 DEFAULT_CSV = Path(settings.BASE_DIR) / "data" / "fuel-prices-for-be-assessment.csv"
 

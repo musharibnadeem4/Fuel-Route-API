@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from routing.services.stations import clean_stations
+from routing.services.cleaning import clean_stations
 
 COLS = ["OPIS Truckstop ID", "Truckstop Name", "Address", "City", "State", "Rack ID", "Retail Price"]
 
