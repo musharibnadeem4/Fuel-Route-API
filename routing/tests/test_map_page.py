@@ -52,6 +52,13 @@ def test_map_page_never_writes_server_strings_as_html(page):
         assert unsafe not in html
 
 
+def test_referrer_policy_lets_openstreetmap_tiles_load(page):
+    """OSM blocks tile requests without a Referer; Django's default policy ("same-origin") sends none."""
+    response, html = page
+    assert response["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert '<meta name="referrer" content="strict-origin-when-cross-origin">' in html
+
+
 def test_root_redirects_to_the_map(client):
     response = client.get("/")
     assert response.status_code == 302

@@ -173,3 +173,8 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
     "loggers": {"routing": {"handlers": ["console"], "level": "INFO"}},
 }
+
+# Django defaults to "same-origin", which sends no Referer to tile.openstreetmap.org; OSM's
+# tile usage policy requires one and blocks the tiles otherwise. Cross-origin requests get
+# only the origin (no path or query).
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
