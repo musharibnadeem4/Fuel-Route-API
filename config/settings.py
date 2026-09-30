@@ -154,3 +154,6 @@ CACHES = {
 
 # External routing API (OpenRouteService); secret comes from .env only
 ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
+
+# Max distance (miles) between a station's city-level coordinates and the route line
+STATION_CORRIDOR_MILES = 10
