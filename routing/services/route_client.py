@@ -1,7 +1,9 @@
 """Client for the OpenRouteService directions API (one POST per uncached route)."""
 import logging
 from dataclasses import dataclass
+from functools import cached_property
 
+import numpy as np
 import requests
 from django.conf import settings
 
@@ -33,6 +35,11 @@ class RouteResult:
 
     coords: list[tuple[float, float]]
     distance_miles: float
+
+    @cached_property
+    def array(self) -> np.ndarray:
+        """(n, 2) float array of (lat, lng), built once and shared by matching and simplifying."""
+        return np.asarray(self.coords, dtype=np.float64)
 
 
 def _scrub(text: str, api_key: str) -> str:

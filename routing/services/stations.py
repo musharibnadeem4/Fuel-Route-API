@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 from django.conf import settings
+from django.db.models import FloatField
+from django.db.models.functions import Cast
 from scipy.spatial import cKDTree
 
 from routing.models import FuelStation
@@ -77,9 +79,12 @@ def get_station_arrays() -> StationArrays:
     if _cache is None:
         with _cache_lock:
             if _cache is None:
-                rows = FuelStation.objects.filter(
-                    lat__isnull=False, lng__isnull=False, geo_approx=False
-                ).values_list("opis_id", "name", "city", "state", "price", "lat", "lng")
+                # CAST in SQL: avoids building 6.6k Decimal objects just to turn them into floats
+                rows = (
+                    FuelStation.objects.filter(lat__isnull=False, lng__isnull=False, geo_approx=False)
+                    .annotate(price_f=Cast("price", FloatField()))
+                    .values_list("opis_id", "name", "city", "state", "price_f", "lat", "lng")
+                )
                 _cache = build_station_arrays(list(rows))
     return _cache
 
@@ -112,7 +117,7 @@ def route_points(route: RouteResult) -> tuple[np.ndarray, np.ndarray]:
     Markers are computed on the full geometry first, so downsampling (which keeps
     the first and last vertex) does not change the distances.
     """
-    coords = np.asarray(route.coords, dtype=np.float64)
+    coords = route.array
     lat, lng = coords[:, 0], coords[:, 1]
     markers = route_mile_markers(lat, lng, route.distance_miles)
     if len(coords) > MAX_ROUTE_VERTICES:

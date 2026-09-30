@@ -1,0 +1,181 @@
+{
+ "chicago_la": {
+  "candidates": {
+   "count": 253,
+   "digest": "0567ce9f55f2f4b9ddbdcac0e14619f705a03ff562c08026947c14ca756e21be"
+  },
+  "distance_miles": 2017.82,
+  "fuel_stops": [
+   {
+    "city": "Gretna",
+    "cost": 16.44,
+    "gallons_purchased": 5.63,
+    "lat": 41.1345,
+    "lng": -96.2458,
+    "mile_marker": 482.1,
+    "name": "KUM & GO #0370",
+    "order": 1,
+    "price_per_gallon": 2.9207,
+    "state": "NE"
+   },
+   {
+    "city": "Waco",
+    "cost": 139.95,
+    "gallons_purchased": 50.0,
+    "lat": 40.9198,
+    "lng": -97.4534,
+    "mile_marker": 556.3,
+    "name": "AKAL TRAVEL CENTER",
+    "order": 2,
+    "price_per_gallon": 2.799,
+    "state": "NE"
+   },
+   {
+    "city": "Overton",
+    "cost": 32.21,
+    "gallons_purchased": 11.11,
+    "lat": 40.7519,
+    "lng": -99.5278,
+    "mile_marker": 667.4,
+    "name": "AM ENERGY",
+    "order": 3,
+    "price_per_gallon": 2.899,
+    "state": "NE"
+   },
+   {
+    "city": "Ogallala",
+    "cost": 36.89,
+    "gallons_purchased": 12.24,
+    "lat": 41.1275,
+    "lng": -101.7107,
+    "mile_marker": 789.8,
+    "name": "FATDOGS OGALLALA",
+    "order": 4,
+    "price_per_gallon": 3.014,
+    "state": "NE"
+   },
+   {
+    "city": "Keenesburg",
+    "cost": 53.45,
+    "gallons_purchased": 16.97,
+    "lat": 40.0958,
+    "lng": -104.4464,
+    "mile_marker": 959.5,
+    "name": "7-ELEVEN 42279",
+    "order": 5,
+    "price_per_gallon": 3.149,
+    "state": "CO"
+   },
+   {
+    "city": "Green River",
+    "cost": 125.09,
+    "gallons_purchased": 38.11,
+    "lat": 39.0002,
+    "lng": -110.1598,
+    "mile_marker": 1340.7,
+    "name": "MAVERIK COUNTRY STORE #693",
+    "order": 6,
+    "price_per_gallon": 3.2823,
+    "state": "UT"
+   },
+   {
+    "city": "North Las Vegas",
+    "cost": 58.15,
+    "gallons_purchased": 17.72,
+    "lat": 36.25226,
+    "lng": -115.14526,
+    "mile_marker": 1740.2,
+    "name": "Maverik #674",
+    "order": 7,
+    "price_per_gallon": 3.2823,
+    "state": "NV"
+   }
+  ],
+  "route": {
+   "digest": "743e251eb837ace4707f1c05c74a9c41e3e9f15eba1ba1b68e657addceadbcd5",
+   "points": 1149
+  },
+  "total_fuel_cost": 462.19,
+  "total_gallons_purchased": 151.78
+ },
+ "nyc_dallas": {
+  "candidates": {
+   "count": 335,
+   "digest": "11938c01802579ab8859435b43aceeb8e1619347705a554a699fa876f6188df3"
+  },
+  "distance_miles": 1550.7,
+  "fuel_stops": [
+   {
+    "city": "Staunton",
+    "cost": 103.69,
+    "gallons_purchased": 35.77,
+    "lat": 38.15835,
+    "lng": -79.064,
+    "mile_marker": 377.1,
+    "name": "QUARLES #4962",
+    "order": 1,
+    "price_per_gallon": 2.899,
+    "state": "VA"
+   },
+   {
+    "city": "Lebanon",
+    "cost": 143.62,
+    "gallons_purchased": 50.0,
+    "lat": 36.1788,
+    "lng": -86.2855,
+    "mile_marker": 857.7,
+    "name": "Circle K #4703975",
+    "order": 2,
+    "price_per_gallon": 2.8723,
+    "state": "TN"
+   },
+   {
+    "city": "Antioch",
+    "cost": 5.45,
+    "gallons_purchased": 1.88,
+    "lat": 36.0598,
+    "lng": -86.6657,
+    "mile_marker": 878.8,
+    "name": "THORNTONS #607",
+    "order": 3,
+    "price_per_gallon": 2.899,
+    "state": "TN"
+   },
+   {
+    "city": "Texarkana",
+    "cost": 3.04,
+    "gallons_purchased": 1.07,
+    "lat": 33.43598,
+    "lng": -94.07823,
+    "mile_marker": 1376.5,
+    "name": "Quiktrip #7900",
+    "order": 4,
+    "price_per_gallon": 2.8573,
+    "state": "TX"
+   },
+   {
+    "city": "Hooks",
+    "cost": 46.09,
+    "gallons_purchased": 16.36,
+    "lat": 33.5253,
+    "lng": -94.2657,
+    "mile_marker": 1387.1,
+    "name": "EXTRA MILE TRUCK STOP",
+    "order": 5,
+    "price_per_gallon": 2.8173,
+    "state": "TX"
+   }
+  ],
+  "route": {
+   "digest": "18ca2576fb83d6bb5ed6ae4af61541387d8e4e636605b98090a7743c8e1a8330",
+   "points": 1406
+  },
+  "total_fuel_cost": 301.88,
+  "total_gallons_purchased": 105.07
+ },
+ "random_planner": {
+  "digest": "3eb3624143f2874cf8099db1c32a4761a53e72c08b302ff537680686f81fa7bf",
+  "feasible": 648,
+  "plans": 750
+ }
+}

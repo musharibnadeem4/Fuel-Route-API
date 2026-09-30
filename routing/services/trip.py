@@ -4,13 +4,14 @@ import logging
 import time
 
 from django.conf import settings
+import numpy as np
+import shapely
 from django.core.cache import cache
-from shapely.geometry import LineString
 
-from .geocode import Place, lookup_place
+from .geocode import Place, get_index, lookup_place
 from .planner import Plan, plan_fuel_stops
 from .route_client import RouteResult, get_route
-from .stations import candidates_along_route
+from .stations import candidates_along_route, get_station_arrays
 
 logger = logging.getLogger(__name__)
 
@@ -39,22 +40,30 @@ def _cache_key(start: Place, finish: Place, corridor_miles: float, stop_penalty:
     return "trip:" + hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-def simplify_route(coords: list[tuple[float, float]], max_points: int = ROUTE_POINT_LIMIT) -> list[list[float]]:
+def simplify_route(coords, max_points: int = ROUTE_POINT_LIMIT) -> list[list[float]]:
     """Return GeoJSON-order [[lng, lat], ...] with at most max_points, first/last kept.
 
-    Uses Douglas-Peucker with a tolerance that doubles until the point limit is met,
-    so the shape is preserved better than with a fixed stride.
+    ``coords`` is a sequence (or (n, 2) array) of (lat, lng). Uses Douglas-Peucker with a
+    tolerance that doubles until the point limit is met, so the shape is preserved better
+    than with a fixed stride. The line is built from a numpy array (vectorized) because
+    constructing it from 14k Python tuples dominated the cost.
     """
-    points = [(lng, lat) for lat, lng in coords]
+    points = np.ascontiguousarray(np.asarray(coords, dtype=np.float64)[:, ::-1])  # -> (lng, lat)
     if len(points) > max_points:
-        line = LineString(points)
+        line = shapely.linestrings(points)
         tolerance = 0.0005  # degrees, roughly 50 m
         while True:
-            points = list(line.simplify(tolerance, preserve_topology=False).coords)
+            points = shapely.get_coordinates(shapely.simplify(line, tolerance, preserve_topology=False))
             if len(points) <= max_points:
                 break
             tolerance *= 2
-    return [[round(lng, 5), round(lat, 5)] for lng, lat in points]
+    return [[round(lng, 5), round(lat, 5)] for lng, lat in points.tolist()]
+
+
+def warm_caches() -> None:
+    """Load the place index and station arrays now, so the first request does not pay for them."""
+    get_index()
+    get_station_arrays()
 
 
 def _place_dict(place: Place) -> dict:
@@ -62,14 +71,23 @@ def _place_dict(place: Place) -> dict:
 
 
 def build_payload(
-    start: Place, finish: Place, route: RouteResult, plan: Plan, corridor_miles: float, stop_penalty: float
+    start: Place,
+    finish: Place,
+    route: RouteResult,
+    geometry: list[list[float]],
+    plan: Plan,
+    corridor_miles: float,
+    stop_penalty: float,
 ) -> dict:
-    """The cacheable response body (everything except per-request meta)."""
+    """The cacheable response body (everything except per-request meta).
+
+    ``geometry`` is the already simplified [[lng, lat], ...] route line.
+    """
     return {
         "start": _place_dict(start),
         "finish": _place_dict(finish),
         "distance_miles": round(route.distance_miles, 2),
-        "route": {"type": "LineString", "coordinates": simplify_route(route.coords)},
+        "route": {"type": "LineString", "coordinates": geometry},
         "fuel_stops": [
             {
                 "order": i,
@@ -107,6 +125,7 @@ def plan_trip(start: str, finish: str) -> dict:
     """
     began = time.perf_counter()
     origin, destination = lookup_place(start), lookup_place(finish)
+    place_ms = _ms(began)
     if (origin.lat, origin.lng) == (destination.lat, destination.lng):
         raise SameLocationError("Start and finish are the same place.")
     corridor = settings.STATION_CORRIDOR_MILES
@@ -117,7 +136,12 @@ def plan_trip(start: str, finish: str) -> dict:
     if cached is not None:
         total = _ms(began)
         logger.info("trip served from cache: %s -> %s total_ms=%s", origin.name, destination.name, total)
-        meta = {"external_api_calls": 0, "cached": True, "compute_ms": total, "route_call_ms": 0.0}
+        timings = dict.fromkeys(("place_lookup", "route_call", "station_match", "planning", "route_simplify"), 0.0)
+        timings["place_lookup"] = place_ms
+        meta = {
+            "external_api_calls": 0, "cached": True, "compute_ms": total, "route_call_ms": 0.0,
+            "timings_ms": {**timings, "total_compute": total},
+        }
         return {**cached, "start": _place_dict(origin), "finish": _place_dict(destination), "meta": meta}
 
     step = time.perf_counter()
@@ -134,19 +158,32 @@ def plan_trip(start: str, finish: str) -> dict:
     )
     planning_ms = _ms(step)
 
-    payload = build_payload(origin, destination, route, plan, corridor, penalty)
+    step = time.perf_counter()
+    geometry = simplify_route(route.array)
+    simplify_ms = _ms(step)
+
+    payload = build_payload(origin, destination, route, geometry, plan, corridor, penalty)
     cache.set(key, payload, CACHE_TTL_SECONDS)
     total = _ms(began)
+    compute_ms = round(total - route_ms, 1)  # our own work; the external call is separate
     logger.info(
-        "trip planned: %s -> %s route_call_ms=%s matching_ms=%s planning_ms=%s total_ms=%s "
-        "candidates=%d stops=%d",
-        origin.name, destination.name, route_ms, matching_ms, planning_ms, total,
+        "trip planned: %s -> %s place_ms=%s route_call_ms=%s matching_ms=%s planning_ms=%s simplify_ms=%s "
+        "total_ms=%s candidates=%d stops=%d",
+        origin.name, destination.name, place_ms, route_ms, matching_ms, planning_ms, simplify_ms, total,
         len(candidates), len(plan.stops),
     )
     meta = {
         "external_api_calls": 1,
         "cached": False,
-        "compute_ms": round(total - route_ms, 1),  # our own work; the external call is separate
+        "compute_ms": compute_ms,
         "route_call_ms": route_ms,
+        "timings_ms": {
+            "place_lookup": place_ms,
+            "route_call": route_ms,
+            "station_match": matching_ms,
+            "planning": planning_ms,
+            "route_simplify": simplify_ms,
+            "total_compute": compute_ms,
+        },
     }
     return {**payload, "meta": meta}

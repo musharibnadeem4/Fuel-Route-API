@@ -5,9 +5,9 @@ city+state), saved to routing/data/us_places.csv and then only ever read locally
 """
 import csv
 import re
+import threading
 import unicodedata
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -102,26 +102,30 @@ def build_places(geonames_lines: Iterable[str]) -> list[tuple[str, str, float, f
 
 
 def write_places_csv(rows: Iterable[tuple[str, str, float, float]], path: Path | None = None) -> None:
-    """Write the lookup CSV (city,state,lat,lng); defaults to the bundled PLACES_CSV."""
+    """Write the lookup CSV (city,state,lat,lng,key); defaults to the bundled PLACES_CSV.
+
+    ``key`` is normalize_city(city), precomputed so loading the index does not have to
+    normalize ~30k names (that cost ~300 ms on every cold start).
+    """
     path = path or PLACES_CSV
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["city", "state", "lat", "lng"])
-        writer.writerows(rows)
+        writer.writerow(["city", "state", "lat", "lng", "key"])
+        writer.writerows((city, state, lat, lng, normalize_city(city)) for city, state, lat, lng in rows)
 
 
-def index_from_rows(rows: Iterable[dict[str, str]]) -> PlaceIndex:
-    """Build a PlaceIndex from dict rows with city/state/lat/lng keys."""
+def _index_from_tuples(rows: Iterable[tuple[str, str, float, float, str | None]]) -> PlaceIndex:
+    """Build a PlaceIndex from (city, state, lat, lng, key-or-None) tuples."""
     cities: dict[tuple[str, str], Coord] = {}
     compact: dict[tuple[str, str], Coord] = {}
     by_state: dict[str, list[Coord]] = {}
-    for row in rows:
-        coord = (float(row["lat"]), float(row["lng"]))
-        key = normalize_city(row["city"])
-        cities[(key, row["state"])] = coord
-        compact.setdefault((key.replace(" ", ""), row["state"]), coord)
-        by_state.setdefault(row["state"], []).append(coord)
+    for city, state, lat, lng, key in rows:
+        coord = (lat, lng)
+        key = key or normalize_city(city)
+        cities[(key, state)] = coord
+        compact.setdefault((key.replace(" ", ""), state), coord)
+        by_state.setdefault(state, []).append(coord)
     states = {
         st: (sum(c[0] for c in pts) / len(pts), sum(c[1] for c in pts) / len(pts))
         for st, pts in by_state.items()
@@ -129,16 +133,45 @@ def index_from_rows(rows: Iterable[dict[str, str]]) -> PlaceIndex:
     return PlaceIndex(cities, states, compact)
 
 
+def index_from_rows(rows: Iterable[dict[str, str]]) -> PlaceIndex:
+    """Build a PlaceIndex from dict rows with city/state/lat/lng (and optional key) keys."""
+    return _index_from_tuples(
+        (r["city"], r["state"], float(r["lat"]), float(r["lng"]), r.get("key")) for r in rows
+    )
+
+
 def load_index(path: Path | None = None) -> PlaceIndex:
     """Load the lookup from CSV (no network); defaults to the bundled PLACES_CSV."""
     with (path or PLACES_CSV).open(newline="", encoding="utf-8") as fh:
-        return index_from_rows(csv.DictReader(fh))
+        reader = csv.reader(fh)  # plain reader: DictReader is ~3x slower on 30k rows
+        col = {name: i for i, name in enumerate(next(reader))}
+        city, state, lat, lng = (col[n] for n in ("city", "state", "lat", "lng"))
+        key = col.get("key")
+        return _index_from_tuples(
+            (r[city], r[state], float(r[lat]), float(r[lng]), r[key] if key is not None else None)
+            for r in reader
+        )
 
 
-@lru_cache(maxsize=1)
+_index: PlaceIndex | None = None
+_index_lock = threading.Lock()
+
+
 def get_index() -> PlaceIndex:
-    """Process-wide cached default index."""
-    return load_index()
+    """Process-wide cached default index (loaded once, safe under concurrent first use)."""
+    global _index
+    if _index is None:
+        with _index_lock:
+            if _index is None:
+                _index = load_index()
+    return _index
+
+
+def clear_index_cache() -> None:
+    """Drop the cached index; the next get_index() reloads it from PLACES_CSV."""
+    global _index
+    with _index_lock:
+        _index = None
 
 
 def _display_city(city: str) -> str:

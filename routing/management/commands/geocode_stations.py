@@ -34,7 +34,7 @@ class Command(BaseCommand):
         if options["refresh"] or not geocode.PLACES_CSV.exists():
             self.stdout.write("Downloading GeoNames US postal data...")
             download_places_csv(geocode.PLACES_CSV)
-            geocode.get_index.cache_clear()
+            geocode.clear_index_cache()
         index = geocode.load_index()
 
         stations = list(FuelStation.objects.all())
