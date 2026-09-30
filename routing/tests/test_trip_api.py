@@ -95,7 +95,7 @@ def test_happy_path_returns_exact_stops_and_cost(client, get_route, worked_examp
     assert route["coordinates"][-1] == [-90.0, 40.0]
     assert body["assumptions"] == {
         "range_miles": 500, "mpg": 10, "start_tank": "full, not charged",
-        "corridor_miles": 10, "price_rule": "lowest price per station",
+        "corridor_miles": 10, "stop_penalty_usd": 2.0, "price_rule": "lowest price per station",
     }
     meta = body["meta"]
     assert (meta["external_api_calls"], meta["cached"]) == (1, False)
@@ -117,6 +117,15 @@ def test_case_and_whitespace_variants_share_one_cache_entry(client, get_route, w
     assert get_route.call_count == 1
     assert second.json()["meta"]["cached"] is True
     assert second.json()["start"]["name"] == "Chicago, IL"  # canonical name, not the raw text
+
+
+def test_changing_the_stop_penalty_does_not_serve_a_stale_cached_plan(client, get_route, worked_example_stations, settings):
+    post(client, {"start": "Chicago, IL", "finish": "Los Angeles, CA"})
+    settings.FUEL_STOP_PENALTY = 5.0
+    body = post(client, {"start": "Chicago, IL", "finish": "Los Angeles, CA"}).json()
+    assert get_route.call_count == 2
+    assert body["meta"]["cached"] is False
+    assert body["assumptions"]["stop_penalty_usd"] == 5.0
 
 
 def test_reversed_trip_is_a_different_cache_entry(client, get_route, worked_example_stations):

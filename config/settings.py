@@ -158,6 +158,9 @@ ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
 # Max distance (miles) between a station's city-level coordinates and the route line
 STATION_CORRIDOR_MILES = 10
 
+# A fuel stop must save at least this many dollars versus the plan without it
+FUEL_STOP_PENALTY = 2.00
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "EXCEPTION_HANDLER": "routing.views.api_exception_handler",

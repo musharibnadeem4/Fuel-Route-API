@@ -22,6 +22,12 @@ and B (mile 600, $3.00/gal).
    20 gal * $3.00 = $60.00 and drive to the end.
 Total: 30 gal, $95.00 (= 80 gal burned - 50 gal free).
 
+Micro-stop elimination: the greedy happily buys 1.8 gal at a station 18 miles after a
+full fill to save a few cents. ``stop_penalty`` (dollars) is a decision rule only: a stop
+is dropped when re-planning without it (feasibly) raises the fuel cost by less than
+``stop_penalty`` per stop saved, repeating with the cheapest removal first. The penalty is
+never added to the reported cost. ``stop_penalty=0`` is the pure greedy optimum.
+
 Rounding to 2 decimals happens only when the result is built, so the plan total
 can differ by a cent from the sum of the rounded per-stop costs.
 """
@@ -30,6 +36,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 _EPS = 1e-9
+DEFAULT_STOP_PENALTY = 2.0  # dollars; trip.py passes settings.FUEL_STOP_PENALTY explicitly
 
 
 class NoFeasibleRoute(Exception):
@@ -96,22 +103,12 @@ def _usable_candidates(candidates: Sequence[Candidate], total_miles: float) -> l
     return result
 
 
-def plan_fuel_stops(
-    total_miles: float,
-    candidates: Sequence[Candidate],
-    range_miles: float = 500.0,
-    mpg: float = 10.0,
-) -> Plan:
-    """Plan the cheapest fuel purchases for a trip of ``total_miles``.
+_Purchase = tuple[Candidate, float, float]  # (station, gallons bought, fuel on arrival)
 
-    ``candidates`` may be in any order and is never mutated. Raises NoFeasibleRoute
-    when a gap between consecutive fuel points (start, stations, destination)
-    exceeds ``range_miles``.
-    """
-    if total_miles < 0 or range_miles <= 0 or mpg <= 0:
-        raise ValueError("total_miles must be >= 0; range_miles and mpg must be > 0.")
+
+def _greedy(total_miles: float, cands: list[Candidate], range_miles: float, mpg: float) -> list[_Purchase]:
+    """Pure greedy plan over a usable, sorted, de-duplicated pool. Raises NoFeasibleRoute."""
     capacity = range_miles / mpg
-    cands = _usable_candidates(candidates, total_miles)
     markers = [c.mile_marker for c in cands]
 
     purchases: list[tuple[Candidate, float, float]] = []  # (station, gallons, arrival fuel)
@@ -149,6 +146,70 @@ def plan_fuel_stops(
         if nxt is None:
             break
         pos, here, arrival = nxt.mile_marker, nxt, fuel
+
+    return purchases
+
+
+def _fuel_cost(purchases: list[_Purchase]) -> float:
+    return sum(gallons * station.price for station, gallons, _ in purchases)
+
+
+def _eliminate_stops(
+    total_miles: float,
+    pool: list[Candidate],
+    purchases: list[_Purchase],
+    stop_penalty: float,
+    range_miles: float,
+    mpg: float,
+) -> list[_Purchase]:
+    """Backward elimination of stops that do not save at least ``stop_penalty`` each.
+
+    Each round re-plans without one stop's station. The removal qualifies when it is
+    feasible and ``cost increase < stop_penalty * stops saved`` (for one saved stop:
+    it costs less than the penalty). Requiring a saved stop stops a removal from being
+    "paid for" by the greedy simply picking a different station. The qualifying removal
+    with the smallest cost increase is adopted and its station stays out of the pool.
+    """
+    pool = list(pool)
+    while purchases:
+        cost = _fuel_cost(purchases)
+        best: tuple[float, Candidate, list[_Purchase]] | None = None
+        for station, _, _ in purchases:
+            try:
+                trial = _greedy(total_miles, [c for c in pool if c is not station], range_miles, mpg)
+            except NoFeasibleRoute:
+                continue
+            increase = _fuel_cost(trial) - cost
+            stops_saved = len(purchases) - len(trial)
+            if increase < stop_penalty * stops_saved - _EPS and (best is None or increase < best[0]):
+                best = (increase, station, trial)
+        if best is None:
+            break
+        _, removed, purchases = best
+        pool = [c for c in pool if c is not removed]
+    return purchases
+
+
+def plan_fuel_stops(
+    total_miles: float,
+    candidates: Sequence[Candidate],
+    range_miles: float = 500.0,
+    mpg: float = 10.0,
+    stop_penalty: float = DEFAULT_STOP_PENALTY,
+) -> Plan:
+    """Plan the cheapest fuel purchases for a trip of ``total_miles``.
+
+    ``candidates`` may be in any order and is never mutated. Raises NoFeasibleRoute
+    when a gap between consecutive fuel points (start, stations, destination)
+    exceeds ``range_miles``. Stops that save less than ``stop_penalty`` dollars are
+    eliminated (0 disables this); totals are always the real fuel cost.
+    """
+    if total_miles < 0 or range_miles <= 0 or mpg <= 0 or stop_penalty < 0:
+        raise ValueError("total_miles and stop_penalty must be >= 0; range_miles and mpg must be > 0.")
+    pool = _usable_candidates(candidates, total_miles)
+    purchases = _greedy(total_miles, pool, range_miles, mpg)
+    if stop_penalty > 0:
+        purchases = _eliminate_stops(total_miles, pool, purchases, stop_penalty, range_miles, mpg)
 
     stops = tuple(
         Stop(c, round(g, 2), round(g * c.price, 2), round(arr, 2)) for c, g, arr in purchases

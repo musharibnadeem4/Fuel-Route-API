@@ -28,13 +28,14 @@ def _ms(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
-def _cache_key(start: Place, finish: Place, corridor_miles: float) -> str:
+def _cache_key(start: Place, finish: Place, corridor_miles: float, stop_penalty: float) -> str:
     """Key on resolved coordinates (what the route depends on), not on the raw text.
 
     "chicago, il", "Chicago, IL " and any alias that resolves to the same point share
-    one entry. The corridor is part of the key so changing the setting can't serve stale plans.
+    one entry. The corridor and stop penalty are part of the key so changing a setting
+    can't serve stale plans.
     """
-    raw = f"v1|{corridor_miles:g}|{start.lat:.5f},{start.lng:.5f}|{finish.lat:.5f},{finish.lng:.5f}"
+    raw = f"v2|{corridor_miles:g}|{stop_penalty:g}|{start.lat:.5f},{start.lng:.5f}|{finish.lat:.5f},{finish.lng:.5f}"
     return "trip:" + hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
@@ -60,7 +61,9 @@ def _place_dict(place: Place) -> dict:
     return {"name": place.name, "lat": round(place.lat, 5), "lng": round(place.lng, 5)}
 
 
-def build_payload(start: Place, finish: Place, route: RouteResult, plan: Plan, corridor_miles: float) -> dict:
+def build_payload(
+    start: Place, finish: Place, route: RouteResult, plan: Plan, corridor_miles: float, stop_penalty: float
+) -> dict:
     """The cacheable response body (everything except per-request meta)."""
     return {
         "start": _place_dict(start),
@@ -89,6 +92,7 @@ def build_payload(start: Place, finish: Place, route: RouteResult, plan: Plan, c
             "mpg": int(MPG),
             "start_tank": "full, not charged",
             "corridor_miles": corridor_miles,
+            "stop_penalty_usd": stop_penalty,
             "price_rule": "lowest price per station",
         },
     }
@@ -106,7 +110,8 @@ def plan_trip(start: str, finish: str) -> dict:
     if (origin.lat, origin.lng) == (destination.lat, destination.lng):
         raise SameLocationError("Start and finish are the same place.")
     corridor = settings.STATION_CORRIDOR_MILES
-    key = _cache_key(origin, destination, corridor)
+    penalty = float(settings.FUEL_STOP_PENALTY)
+    key = _cache_key(origin, destination, corridor, penalty)
 
     cached = cache.get(key)
     if cached is not None:
@@ -124,10 +129,12 @@ def plan_trip(start: str, finish: str) -> dict:
     matching_ms = _ms(step)
 
     step = time.perf_counter()
-    plan = plan_fuel_stops(route.distance_miles, candidates, range_miles=RANGE_MILES, mpg=MPG)
+    plan = plan_fuel_stops(
+        route.distance_miles, candidates, range_miles=RANGE_MILES, mpg=MPG, stop_penalty=penalty
+    )
     planning_ms = _ms(step)
 
-    payload = build_payload(origin, destination, route, plan, corridor)
+    payload = build_payload(origin, destination, route, plan, corridor, penalty)
     cache.set(key, payload, CACHE_TTL_SECONDS)
     total = _ms(began)
     logger.info(
