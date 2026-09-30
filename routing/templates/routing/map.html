@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fuel Route Planner</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --text: #1f2937; --muted: #6b7280; --line: #e5e7eb;
+      --accent: #2563eb; --accent-dark: #1d4ed8; --start: #16a34a; --finish: #dc2626; --stop: #f59e0b;
+      --error-bg: #fef2f2; --error-line: #fca5a5; --error-text: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.35rem; margin: 0 0 12px; }
+    form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 220px; font-weight: 600; font-size: .85rem; }
+    input[type="text"] { font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    input[type="text"]:focus-visible, button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 1px; }
+    button { font: inherit; font-weight: 600; padding: 9px 18px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+    button:hover:not(:disabled) { background: var(--accent-dark); }
+    button:disabled { opacity: .65; cursor: progress; }
+    .hint { flex-basis: 100%; margin: 0; font-size: .8rem; color: var(--muted); }
+    #status { min-height: 1.4em; margin: 8px 0 0; color: var(--muted); }
+    .error { margin: 8px 0; padding: 10px 12px; background: var(--error-bg); border: 1px solid var(--error-line); color: var(--error-text); border-radius: 6px; font-weight: 600; }
+    .summary { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 12px 0; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    .stat { display: flex; flex-direction: column; }
+    .stat .label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .stat .value { font-size: 1.15rem; font-weight: 700; }
+    .meta { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 18px; padding-top: 8px; border-top: 1px solid var(--line); font-size: .8rem; color: var(--muted); }
+    #map { height: 60vh; min-height: 340px; border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
+    .pin, .stop-pin { display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; font-weight: 700; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.45); }
+    .pin { width: 30px; height: 30px; }
+    .pin-start { background: var(--start); }
+    .pin-finish { background: var(--finish); }
+    .stop-pin { width: 26px; height: 26px; background: var(--stop); color: #1f2937; font-size: .8rem; }
+    .popup div { margin: 1px 0; }
+    .table-wrap { overflow-x: auto; margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; min-width: 640px; }
+    caption { text-align: left; font-weight: 700; padding: 10px 12px; }
+    th, td { padding: 8px 12px; text-align: left; border-top: 1px solid var(--line); }
+    th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tfoot td { font-weight: 700; background: #f9fafb; }
+    .empty { color: var(--muted); font-style: italic; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Fuel Route Planner</h1>
+
+  <form id="plan-form" data-api-url="{% url 'route' %}" novalidate>
+    <label for="start">Start
+      <input id="start" name="start" type="text" value="Chicago, IL" maxlength="100" required autocomplete="off">
+    </label>
+    <label for="finish">Finish
+      <input id="finish" name="finish" type="text" value="Los Angeles, CA" maxlength="100" required autocomplete="off">
+    </label>
+    <button id="plan-btn" type="submit">Plan route</button>
+    <p class="hint">Use "City, ST" (for example "Denver, CO") or "lat,lng".</p>
+  </form>
+
+  <p id="status" role="status" aria-live="polite"></p>
+  <div id="error" class="error" role="alert" hidden></div>
+
+  <section id="summary" class="summary" aria-label="Trip summary" hidden></section>
+
+  <div id="map" aria-label="Route map"></div>
+
+  <div id="stops-section" class="table-wrap" hidden>
+    <table id="stops-table">
+      <caption>Fuel stops</caption>
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Station</th>
+          <th scope="col">City</th>
+          <th scope="col">State</th>
+          <th scope="col" class="num">Price / gal</th>
+          <th scope="col" class="num">Mile</th>
+          <th scope="col" class="num">Gallons</th>
+          <th scope="col" class="num">Cost</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot></tfoot>
+    </table>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+{% verbatim %}
+<script>
+(function () {
+  "use strict";
+
+  var form = document.getElementById("plan-form");
+  var button = document.getElementById("plan-btn");
+  var statusEl = document.getElementById("status");
+  var errorEl = document.getElementById("error");
+  var summaryEl = document.getElementById("summary");
+  var stopsSection = document.getElementById("stops-section");
+  var tbody = document.querySelector("#stops-table tbody");
+  var tfoot = document.querySelector("#stops-table tfoot");
+  var API_URL = form.dataset.apiUrl;
+
+  var map = L.map("map").setView([39.5, -98.35], 4);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  var layer = L.layerGroup().addTo(map);
+
+  // --- DOM helpers: server strings only ever reach the page through textContent ---------
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+  function cell(tag, text, className) { return el(tag, className || "", text); }
+
+  var money = function (n) { return "$" + Number(n).toFixed(2); };
+  var fixed = function (n, digits) { return Number(n).toFixed(digits); };
+
+  // --- UI state --------------------------------------------------------------------------
+  function setLoading(loading) {
+    button.disabled = loading;
+    button.textContent = loading ? "Planning…" : "Plan route";
+    statusEl.textContent = loading ? "Planning route…" : "";
+    form.setAttribute("aria-busy", loading ? "true" : "false");
+  }
+  function showError(message) {
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+  }
+  function clearError() {
+    errorEl.textContent = "";
+    errorEl.hidden = true;
+  }
+
+  // --- Rendering -------------------------------------------------------------------------
+  function pinIcon(label, cls) {
+    return L.divIcon({
+      className: "", html: el("div", "pin " + cls, label),
+      iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -15]
+    });
+  }
+  function stopIcon(order) {
+    return L.divIcon({
+      className: "", html: el("div", "stop-pin", order),
+      iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -13]
+    });
+  }
+  function popupFor(title, lines) {
+    var box = el("div", "popup");
+    box.appendChild(el("strong", "", title));
+    lines.forEach(function (line) { box.appendChild(el("div", "", line)); });
+    return box;
+  }
+
+  function renderSummary(data) {
+    var stats = [
+      ["Distance", fixed(data.distance_miles, 1) + " mi"],
+      ["Fuel stops", data.fuel_stops.length],
+      ["Gallons purchased", fixed(data.total_gallons_purchased, 2)],
+      ["Total fuel cost", money(data.total_fuel_cost)]
+    ];
+    var nodes = stats.map(function (s) {
+      var stat = el("div", "stat");
+      stat.appendChild(el("span", "label", s[0]));
+      stat.appendChild(el("span", "value", s[1]));
+      return stat;
+    });
+    var meta = el("div", "meta");
+    var m = data.meta || {};
+    [
+      "Cached: " + (m.cached ? "yes" : "no"),
+      "External API calls: " + m.external_api_calls,
+      "Compute: " + m.compute_ms + " ms",
+      "Route call: " + m.route_call_ms + " ms"
+    ].forEach(function (text) { meta.appendChild(el("span", "", text)); });
+    nodes.push(meta);
+    summaryEl.replaceChildren.apply(summaryEl, nodes);
+    summaryEl.hidden = false;
+  }
+
+  function renderTable(data) {
+    var rows = data.fuel_stops.map(function (s) {
+      var tr = el("tr");
+      tr.appendChild(cell("td", s.order));
+      tr.appendChild(cell("td", s.name));
+      tr.appendChild(cell("td", s.city));
+      tr.appendChild(cell("td", s.state));
+      tr.appendChild(cell("td", money4(s.price_per_gallon), "num"));
+      tr.appendChild(cell("td", fixed(s.mile_marker, 1), "num"));
+      tr.appendChild(cell("td", fixed(s.gallons_purchased, 2), "num"));
+      tr.appendChild(cell("td", money(s.cost), "num"));
+      return tr;
+    });
+    if (!rows.length) {
+      var empty = el("tr");
+      var td = cell("td", "No fuel stop needed: this trip fits in one tank.", "empty");
+      td.colSpan = 8;
+      empty.appendChild(td);
+      rows.push(empty);
+    }
+    tbody.replaceChildren.apply(tbody, rows);
+
+    var totals = el("tr");
+    var label = cell("td", "Total");
+    label.colSpan = 6;
+    totals.appendChild(label);
+    totals.appendChild(cell("td", fixed(data.total_gallons_purchased, 2), "num"));
+    totals.appendChild(cell("td", money(data.total_fuel_cost), "num"));
+    tfoot.replaceChildren(totals);
+    stopsSection.hidden = false;
+  }
+  function money4(n) { return "$" + Number(n).toFixed(4); }
+
+  function renderMap(data) {
+    layer.clearLayers();
+    // The API sends GeoJSON order [lng, lat]; Leaflet wants [lat, lng].
+    var latlngs = data.route.coordinates.map(function (c) { return [c[1], c[0]]; });
+    var line = L.polyline(latlngs, { color: "#2563eb", weight: 4, opacity: 0.85 }).addTo(layer);
+
+    [["A", "pin-start", "Start", data.start], ["B", "pin-finish", "Finish", data.finish]].forEach(function (p) {
+      L.marker([p[3].lat, p[3].lng], { icon: pinIcon(p[0], p[1]), title: p[2] + ": " + p[3].name })
+        .bindPopup(popupFor(p[2], [p[3].name])).addTo(layer);
+    });
+
+    data.fuel_stops.forEach(function (s) {
+      L.marker([s.lat, s.lng], { icon: stopIcon(s.order), title: "Stop " + s.order + ": " + s.name })
+        .bindPopup(popupFor(s.order + ". " + s.name, [
+          s.city + ", " + s.state,
+          "Price: " + money4(s.price_per_gallon) + " / gal",
+          "Gallons purchased: " + fixed(s.gallons_purchased, 2),
+          "Cost: " + money(s.cost),
+          "Mile marker: " + fixed(s.mile_marker, 1)
+        ])).addTo(layer);
+    });
+
+    map.fitBounds(line.getBounds(), { padding: [30, 30] });
+  }
+
+  function validate(data) {
+    if (!data || !data.route || !Array.isArray(data.route.coordinates) || !Array.isArray(data.fuel_stops)) {
+      throw new Error("Unexpected response from the server.");
+    }
+  }
+
+  // --- Request ---------------------------------------------------------------------------
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var start = form.elements.start.value.trim();
+    var finish = form.elements.finish.value.trim();
+    clearError();
+    if (!start || !finish) {
+      showError("Please enter both a start and a finish location.");
+      return;
+    }
+    setLoading(true);
+    fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ start: start, finish: finish })
+    })
+      .catch(function () {  // fetch() only rejects when the server cannot be reached at all
+        throw new Error("Could not reach the server. Check your connection and try again.");
+      })
+      .then(function (response) {
+        return response.json().catch(function () { return null; }).then(function (data) {
+          if (!response.ok) {
+            var message = data && data.error && data.error.message;
+            throw new Error(message || "Request failed (HTTP " + response.status + ").");
+          }
+          return data;
+        });
+      })
+      .then(function (data) {
+        validate(data);
+        renderMap(data);
+        renderSummary(data);
+        renderTable(data);
+      })
+      .catch(function (err) { showError(err.message); })
+      .then(function () { setLoading(false); });
+  });
+})();
+</script>
+{% endverbatim %}
+</body>
+</html>

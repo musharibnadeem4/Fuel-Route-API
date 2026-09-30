@@ -1,5 +1,6 @@
 import logging
 
+from django.views.generic import TemplateView
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
@@ -76,3 +77,9 @@ class RouteView(APIView):
             http_status, code = next((s, c) for e, s, c in DOMAIN_ERRORS if isinstance(exc, e))
             return error_response(code, str(exc), http_status)
         return Response(payload)
+
+
+class MapView(TemplateView):
+    """The single-page map UI; it talks to POST /api/route/ from the browser."""
+
+    template_name = "routing/map.html"
