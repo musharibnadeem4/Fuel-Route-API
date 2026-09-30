@@ -12,6 +12,7 @@ class FuelStation(models.Model):
     price = models.DecimalField(max_digits=6, decimal_places=4)
     lat = models.FloatField(null=True, blank=True)
     lng = models.FloatField(null=True, blank=True)
+    geo_approx = models.BooleanField(default=False)  # True: state-centroid fallback
 
     class Meta:
         indexes = [
