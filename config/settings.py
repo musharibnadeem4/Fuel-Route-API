@@ -157,3 +157,16 @@ ORS_API_KEY = os.environ.get('ORS_API_KEY', '')
 
 # Max distance (miles) between a station's city-level coordinates and the route line
 STATION_CORRIDOR_MILES = 10
+
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+    "EXCEPTION_HANDLER": "routing.views.api_exception_handler",
+}
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"plain": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"}},
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
+    "loggers": {"routing": {"handlers": ["console"], "level": "INFO"}},
+}

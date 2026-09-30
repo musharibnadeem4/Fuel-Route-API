@@ -28,6 +28,15 @@ class PlaceNotFoundError(ValueError):
     """Raised when a place string cannot be resolved to coordinates."""
 
 
+@dataclass(frozen=True)
+class Place:
+    """A resolved location with a canonical display name."""
+
+    name: str
+    lat: float
+    lng: float
+
+
 def normalize_city(name: str) -> str:
     """Lowercase, drop accents/punctuation/parentheticals and expand Ft./St./Mt.
 
@@ -132,8 +141,14 @@ def get_index() -> PlaceIndex:
     return load_index()
 
 
-def resolve_place(text: str, index: PlaceIndex | None = None) -> Coord:
-    """Resolve "City, ST" or "lat,lng" to (lat, lng) using only the local lookup.
+def _display_city(city: str) -> str:
+    """Collapse whitespace and title-case all-lower/all-upper names; keep mixed case (McKinney)."""
+    city = " ".join(city.split())
+    return city.title() if city.islower() or city.isupper() else city
+
+
+def lookup_place(text: str, index: PlaceIndex | None = None) -> Place:
+    """Resolve "City, ST" or "lat,lng" to a Place using only the local lookup.
 
     Raises PlaceNotFoundError with a clear message for unparseable or unknown places.
     """
@@ -145,7 +160,7 @@ def resolve_place(text: str, index: PlaceIndex | None = None) -> Coord:
         lat, lng = float(match.group(1)), float(match.group(2))
         if not (-90 <= lat <= 90 and -180 <= lng <= 180):
             raise PlaceNotFoundError(f"Coordinates out of range: {text!r}.")
-        return lat, lng
+        return Place(f"{lat:g}, {lng:g}", lat, lng)
     city, sep, state = (p.strip() for p in text.rpartition(","))
     if not sep or not city or state.upper() not in US_STATES:
         raise PlaceNotFoundError(
@@ -154,5 +169,10 @@ def resolve_place(text: str, index: PlaceIndex | None = None) -> Coord:
     coord = (index or get_index()).find(city, state)
     if coord is None:
         raise PlaceNotFoundError(f"Unknown US place: {city!r}, {state.upper()}.")
-    return coord
+    return Place(f"{_display_city(city)}, {state.upper()}", coord[0], coord[1])
 
+
+def resolve_place(text: str, index: PlaceIndex | None = None) -> Coord:
+    """Resolve "City, ST" or "lat,lng" to (lat, lng); see lookup_place for errors."""
+    place = lookup_place(text, index)
+    return place.lat, place.lng
