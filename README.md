@@ -52,16 +52,25 @@ curl -s -X POST http://127.0.0.1:8000/api/route/ \
   -d '{"start": "Chicago, IL", "finish": "Los Angeles, CA"}'
 ```
 
-On Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest`; use one of these instead:
+On Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest` and quoting JSON for `curl.exe` is
+unreliable, so use `Invoke-RestMethod`:
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8000/api/route/ -H "Content-Type: application/json" -d "{\"start\": \"Chicago, IL\", \"finish\": \"Los Angeles, CA\"}"
-# or
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/route/ -ContentType "application/json" -Body '{"start": "Chicago, IL", "finish": "Los Angeles, CA"}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/route/ -ContentType "application/json" `
+  -Body '{"start": "Chicago, IL", "finish": "Los Angeles, CA"}' | ConvertTo-Json -Depth 8
 ```
 
-Notes: `.env` may be UTF-8 or the UTF-16 that PowerShell's `>` redirect writes; both load. Without an ORS key the
-API answers `502 routing_service_error` ("ORS_API_KEY is not configured"). `geocode_stations` uses the committed
+or `curl.exe` with a body file (this also lets you see error bodies, which `Invoke-RestMethod` hides behind an
+exception):
+
+```powershell
+Set-Content -Path body.json -Value '{"start": "Chicago, IL", "finish": "Los Angeles, CA"}' -Encoding ascii
+curl.exe -s -X POST http://127.0.0.1:8000/api/route/ -H "Content-Type: application/json" --data-binary "@body.json"
+```
+
+Notes: `.env` may be UTF-8 or the UTF-16 that PowerShell's `>` redirect writes; both load, and a real
+`ORS_API_KEY` environment variable takes precedence over `.env`. Without an ORS key the API answers
+`502 routing_service_error` ("ORS_API_KEY is not configured"). `geocode_stations` uses the committed
 `routing/data/us_places.csv`; add `--refresh` to rebuild it from GeoNames (needs network).
 
 ### Example response (real Chicago → Los Angeles request, trimmed)
@@ -200,15 +209,15 @@ vertices) and a New York → Dallas route (12,047 vertices), fresh processes, OR
 
 | Case | Time |
 |---|---|
-| **ORS route call** (one real request) | **about 1.5 s** (1,548 ms measured) |
-| First request after a cold start, **with** startup warm-up (the default under `runserver`/WSGI/ASGI) | 26-45 ms |
+| **ORS route call** (one real request) | **about 1.5-1.8 s** (1,548, 1,738 and 1,806 ms in three real calls) |
+| First request after a cold start, **with** startup warm-up (the default under `runserver`/WSGI/ASGI) | 26-57 ms |
 | First request after a cold start, without warm-up | 210-285 ms (loading the city index and station arrays) |
 | Steady state, cache miss (median of 20) | about 21-23 ms: station match ~8, planning ~8-9, simplify ~5 |
 | Cache hit | under 1 ms of compute, ~8 ms end to end |
 | Startup warm-up (once) | 145-185 ms |
 
-So **ORS latency dominates**: on a miss the whole request is roughly 1.5 s of waiting for ORS plus ~30 ms of our
-work; a repeat is milliseconds. A 3,000-vertex route against all 6,626 stations matches in about 5 ms. The
+So **ORS latency dominates**: on a miss the whole request is roughly 1.5-1.8 s of waiting for ORS plus ~30-60 ms of
+our work; a repeat is milliseconds (about 10 ms end to end through the dev server). A 3,000-vertex route against all 6,626 stations matches in about 5 ms. The
 optimizations (precomputed city keys, vectorized simplification, float price load, a shared route array) are
 locked in by golden regression tests that prove results are unchanged.
 
