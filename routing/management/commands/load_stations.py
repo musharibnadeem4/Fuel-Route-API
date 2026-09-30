@@ -47,7 +47,6 @@ class Command(BaseCommand):
             f"Dropped non-US:       {stats.dropped_non_us}\n"
             f"Dropped invalid:      {stats.dropped_invalid}\n"
             f"Rows after dedupe:    {stats.after_dedupe}\n"
-            f"Stale removed:       {len(stale)}
-"
+            f"Stale removed:        {len(stale)}\n"
             f"Stations saved:       {FuelStation.objects.count()}"
         )
