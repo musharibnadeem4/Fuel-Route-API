@@ -2,6 +2,7 @@ import random
 
 import pytest
 
+from routing.services import planner as planner_module
 from routing.services.planner import Candidate, NoFeasibleRoute, plan_fuel_stops
 
 
@@ -307,3 +308,87 @@ def test_zero_penalty_matches_pure_greedy_and_negative_is_rejected():
     assert plan_fuel_stops(1100, micro_stop_pool(), stop_penalty=0) == greedy(1100, micro_stop_pool())
     with pytest.raises(ValueError):
         plan_fuel_stops(100, [], stop_penalty=-1)
+
+
+# --- neighbouring-pair elimination ------------------------------------------------------
+def pair_pool():
+    # 1130 mi, all distances multiples of 10 so every gallon amount is a whole number.
+    #   F 450 $3.00 (id 1)  A 470 $3.05 (id 2)  D 520 $3.08 (id 3)  B 970 $2.95 (id 4)  H 980 $2.50 (id 5)
+    return [cand(1, 450, 3.00), cand(2, 470, 3.05), cand(3, 520, 3.08), cand(4, 970, 2.95), cand(5, 980, 2.50)]
+
+
+def without(pool, *ids):
+    return [c for c in pool if c.station_id not in ids]
+
+
+def test_pure_greedy_plan_on_the_pair_pool():
+    # Start 50 gal -> F: arrive 5, nothing cheaper within 500 mi (B is 520 away): fill 45 gal * 3.00
+    # = $135.00; A is the cheapest station in range (3.05 < 3.08). A: arrive 48; B (500 mi on) is
+    # cheaper -> buy 2 gal * 3.05 = $6.10. B: arrive 0; H is 10 mi on and cheaper -> 1 gal * 2.95 =
+    # $2.95. H: arrive 0; destination 150 mi -> 15 gal * 2.50 = $37.50.  63 gal, $181.55.
+    plan = greedy(1130, pair_pool())
+    assert stops_summary(plan) == [
+        (450, 45.0, 135.0, 5.0), (470, 2.0, 6.1, 48.0), (970, 1.0, 2.95, 0.0), (980, 15.0, 37.5, 0.0)
+    ]
+    assert (plan.total_gallons_purchased, plan.total_cost) == (63.0, 181.55)
+
+
+def test_pair_removal_saves_a_stop_when_neither_single_removal_does():
+    pool = pair_pool()
+    full = greedy(1130, pool)
+
+    # Dropping A alone: D takes its place (arrive 43; B is 450 mi on -> buy 2 gal * 3.08 = $6.16).
+    # Still 4 stops, +$0.06: a swap, not a saving.
+    no_a = greedy(1130, without(pool, 2))
+    assert [s.candidate.station_id for s in no_a.stops] == [1, 3, 4, 5] and no_a.total_cost == 181.61
+    # Dropping B alone: A tops up to 50 (2 gal * 3.05), D buys 1 gal * 3.08 to reach H. Still 4 stops, +$0.13.
+    no_b = greedy(1130, without(pool, 4))
+    assert [s.candidate.station_id for s in no_b.stops] == [1, 2, 3, 5] and no_b.total_cost == 181.68
+    # The other single removals save a stop but cost too much: F +$2.25 (A must buy 47 gal at 3.05),
+    # H +$6.75 (B must buy the 15 gal at 2.95 instead of 2.50). Both exceed the $2.00 penalty.
+    assert len(greedy(1130, without(pool, 1)).stops) == 3
+    assert greedy(1130, without(pool, 1)).total_cost - full.total_cost == pytest.approx(2.25)
+    assert len(greedy(1130, without(pool, 5)).stops) == 3
+    assert greedy(1130, without(pool, 5)).total_cost - full.total_cost == pytest.approx(6.75)
+
+    # Dropping A and B together: F fills 45 gal, D (arrive 43) buys 3 gal * 3.08 = $9.24 to reach H,
+    # H buys 15 gal. 3 stops for $181.74, only $0.19 more than the 4-stop plan -> adopted.
+    plan = plan_fuel_stops(1130, pool, stop_penalty=2.0)
+    assert stops_summary(plan) == [(450, 45.0, 135.0, 5.0), (520, 3.0, 9.24, 43.0), (980, 15.0, 37.5, 0.0)]
+    assert (plan.total_gallons_purchased, plan.total_cost) == (63.0, 181.74)
+    # Reported cost is real fuel cost; no penalty is added.
+    assert plan.total_cost == pytest.approx(full.total_cost + 0.19)
+
+
+def test_pair_removal_still_requires_the_cost_to_beat_the_penalty():
+    # The same pair costs $0.19 extra, so a $0.10 penalty keeps all four stops.
+    assert len(plan_fuel_stops(1130, pair_pool(), stop_penalty=0.10).stops) == 4
+    assert len(plan_fuel_stops(1130, pair_pool(), stop_penalty=0.20).stops) == 3
+
+
+def test_zero_penalty_reproduces_the_pure_greedy_and_the_dp_optimum():
+    pool = pair_pool()
+    plan = plan_fuel_stops(1130, pool, stop_penalty=0)
+    raw = planner_module._greedy(1130, planner_module._usable_candidates(pool, 1130), 500.0, 10.0)
+    assert [(s.candidate.station_id, s.gallons_purchased) for s in plan.stops] == [
+        (c.station_id, round(g, 2)) for c, g, _ in raw
+    ]  # no elimination was applied
+    optimum_cents = _optimal_cost_cents(1130, {450: 300, 470: 305, 520: 308, 970: 295, 980: 250})
+    assert optimum_cents == 18155 and plan.total_cost == optimum_cents / 100
+    # Eliminating stops can only cost more than the exact optimum.
+    assert plan_fuel_stops(1130, pool).total_cost >= optimum_cents / 100
+
+
+def test_pairs_are_only_tried_after_every_single_removal_fails(monkeypatch):
+    sizes, real = [], planner_module._greedy
+
+    def spy(total, pool, *args):
+        sizes.append(len(pool))  # single trials drop one station, pair trials drop two
+        return real(total, pool, *args)
+
+    monkeypatch.setattr(planner_module, "_greedy", spy)
+    plan_fuel_stops(1100, micro_stop_pool())
+    # Initial greedy on 3 stations. Round 1: three single trials (pool of 2); dropping Q qualifies, so
+    # no pair trial runs. Round 2 (pool P, R): two single trials (pool of 1), both infeasible, and only
+    # then the one neighbouring pair (pool of 0).
+    assert sizes == [3, 2, 2, 2, 1, 1, 0]

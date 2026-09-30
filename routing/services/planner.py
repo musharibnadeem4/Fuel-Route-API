@@ -25,8 +25,19 @@ Total: 30 gal, $95.00 (= 80 gal burned - 50 gal free).
 Micro-stop elimination: the greedy happily buys 1.8 gal at a station 18 miles after a
 full fill to save a few cents. ``stop_penalty`` (dollars) is a decision rule only: a stop
 is dropped when re-planning without it (feasibly) raises the fuel cost by less than
-``stop_penalty`` per stop saved, repeating with the cheapest removal first. The penalty is
-never added to the reported cost. ``stop_penalty=0`` is the pure greedy optimum.
+``stop_penalty`` per stop saved. Each round tries dropping one stop; only if none
+qualifies does it try dropping two neighbouring stops together (a single removal often
+just swaps in another micro-stop). The penalty is never added to the reported cost.
+``stop_penalty=0`` is the pure greedy optimum.
+
+Stop elimination is a heuristic. It is a local search around the greedy plan (remove one
+stop, else two neighbouring stops, re-plan without them), not an exact optimizer of
+``fuel cost + stop_penalty * stops``. It can miss a better plan that needs a substitute
+station excluded as well: on the real Chicago -> Los Angeles test route an exact solver
+finds a 6-stop plan costing $1.28 more than the 7-stop plan returned here. What it
+guarantees is that every elimination it makes saved at least one stop for less than
+``stop_penalty`` per stop, that plans stay feasible, and that reported totals are real
+fuel costs.
 
 Rounding to 2 decimals happens only when the result is built, so the plan total
 can differ by a cent from the sum of the rounded per-stop costs.
@@ -154,6 +165,35 @@ def _fuel_cost(purchases: list[_Purchase]) -> float:
     return sum(gallons * station.price for station, gallons, _ in purchases)
 
 
+def _best_removal(
+    total_miles: float,
+    pool: list[Candidate],
+    purchases: list[_Purchase],
+    removals: list[tuple[Candidate, ...]],
+    stop_penalty: float,
+    range_miles: float,
+    mpg: float,
+) -> tuple[tuple[Candidate, ...], list[_Purchase]] | None:
+    """The qualifying removal with the smallest cost increase, with its re-planned purchases.
+
+    A removal qualifies when re-planning without those stations is feasible and
+    ``cost increase < stop_penalty * stops saved``. Requiring a saved stop stops a removal
+    from being "paid for" by the greedy simply picking a different station instead.
+    """
+    cost = _fuel_cost(purchases)
+    best: tuple[float, tuple[Candidate, ...], list[_Purchase]] | None = None
+    for removal in removals:
+        try:
+            trial = _greedy(total_miles, [c for c in pool if not any(c is r for r in removal)], range_miles, mpg)
+        except NoFeasibleRoute:
+            continue
+        increase = _fuel_cost(trial) - cost
+        stops_saved = len(purchases) - len(trial)
+        if increase < stop_penalty * stops_saved - _EPS and (best is None or increase < best[0]):
+            best = (increase, removal, trial)
+    return None if best is None else (best[1], best[2])
+
+
 def _eliminate_stops(
     total_miles: float,
     pool: list[Candidate],
@@ -164,29 +204,24 @@ def _eliminate_stops(
 ) -> list[_Purchase]:
     """Backward elimination of stops that do not save at least ``stop_penalty`` each.
 
-    Each round re-plans without one stop's station. The removal qualifies when it is
-    feasible and ``cost increase < stop_penalty * stops saved`` (for one saved stop:
-    it costs less than the penalty). Requiring a saved stop stops a removal from being
-    "paid for" by the greedy simply picking a different station. The qualifying removal
-    with the smallest cost increase is adopted and its station stays out of the pool.
+    Each round first tries dropping one stop (re-planning without its station). Only when
+    no single removal qualifies does it try dropping two neighbouring stops together: a
+    single removal often just makes the greedy swap in another micro-stop, while dropping
+    both lets one station absorb the fuel. The qualifying removal with the smallest cost
+    increase is adopted and its stations stay out of the pool; rounds repeat until none applies.
     """
     pool = list(pool)
     while purchases:
-        cost = _fuel_cost(purchases)
-        best: tuple[float, Candidate, list[_Purchase]] | None = None
-        for station, _, _ in purchases:
-            try:
-                trial = _greedy(total_miles, [c for c in pool if c is not station], range_miles, mpg)
-            except NoFeasibleRoute:
-                continue
-            increase = _fuel_cost(trial) - cost
-            stops_saved = len(purchases) - len(trial)
-            if increase < stop_penalty * stops_saved - _EPS and (best is None or increase < best[0]):
-                best = (increase, station, trial)
+        stops = [station for station, _, _ in purchases]
+        best = None
+        for removals in ([(s,) for s in stops], list(zip(stops, stops[1:]))):  # singles, then pairs
+            best = _best_removal(total_miles, pool, purchases, removals, stop_penalty, range_miles, mpg)
+            if best is not None:
+                break
         if best is None:
             break
-        _, removed, purchases = best
-        pool = [c for c in pool if c is not removed]
+        removed, purchases = best
+        pool = [c for c in pool if not any(c is r for r in removed)]
     return purchases
 
 

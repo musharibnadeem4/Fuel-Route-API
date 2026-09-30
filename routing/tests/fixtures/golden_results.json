@@ -130,28 +130,16 @@
     "state": "TN"
    },
    {
-    "city": "Antioch",
-    "cost": 5.45,
-    "gallons_purchased": 1.88,
-    "lat": 36.0598,
-    "lng": -86.6657,
-    "mile_marker": 878.8,
-    "name": "THORNTONS #607",
+    "city": "Dickson",
+    "cost": 8.58,
+    "gallons_purchased": 2.94,
+    "lat": 36.11145,
+    "lng": -87.37625,
+    "mile_marker": 925.6,
+    "name": "QUIKTRIP #7147",
     "order": 3,
-    "price_per_gallon": 2.899,
+    "price_per_gallon": 2.9157,
     "state": "TN"
-   },
-   {
-    "city": "Texarkana",
-    "cost": 3.04,
-    "gallons_purchased": 1.07,
-    "lat": 33.43598,
-    "lng": -94.07823,
-    "mile_marker": 1376.5,
-    "name": "Quiktrip #7900",
-    "order": 4,
-    "price_per_gallon": 2.8573,
-    "state": "TX"
    },
    {
     "city": "Hooks",
@@ -161,7 +149,7 @@
     "lng": -94.2657,
     "mile_marker": 1387.1,
     "name": "EXTRA MILE TRUCK STOP",
-    "order": 5,
+    "order": 4,
     "price_per_gallon": 2.8173,
     "state": "TX"
    }
@@ -170,11 +158,11 @@
    "digest": "18ca2576fb83d6bb5ed6ae4af61541387d8e4e636605b98090a7743c8e1a8330",
    "points": 1406
   },
-  "total_fuel_cost": 301.88,
+  "total_fuel_cost": 301.98,
   "total_gallons_purchased": 105.07
  },
  "random_planner": {
-  "digest": "3eb3624143f2874cf8099db1c32a4761a53e72c08b302ff537680686f81fa7bf",
+  "digest": "61a3f0d506067139cf90dc818e10f4f428ccaeccde50648d4b9c1336046d0541",
   "feasible": 648,
   "plans": 750
  }
